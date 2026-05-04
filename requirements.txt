@@ -1,0 +1,26 @@
+# CSCI 576 Multimedia Project - Video Content Segmentation
+# Multimodal Video Analysis and Player
+
+# Video/Audio Processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+scipy>=1.11.0
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Machine Learning / Feature Analysis
+scikit-learn>=1.3.0
+
+# Speech Recognition (optional - for transcript analysis)
+# whisper>=1.0.0
+
+# GUI Video Player
+PyQt5>=5.15.0
+
+# Media handling
+moviepy>=1.0.3
+ffmpeg-python>=0.2.0
+
+# Utilities
+tqdm>=4.65.0
+matplotlib>=3.7.0
