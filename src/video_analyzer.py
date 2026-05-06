@@ -126,22 +126,25 @@ class VideoAnalyzer:
         colors = [(int(c[2]), int(c[1]), int(c[0])) for c in centers]  # BGR to RGB
         return colors
     
-    def calculate_motion(self, prev_frame: np.ndarray, curr_frame: np.ndarray) -> float:
+    def calculate_motion(self, prev_frame: np.ndarray, curr_frame: np.ndarray, fast_mode: bool = True) -> float:
         """
-        Calculate motion between two frames using optical flow.
-        Returns normalized motion magnitude.
+        Calculate motion between two frames.
+        Fast mode uses frame difference, slow mode uses optical flow.
         """
         prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
         curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
         
-        flow = cv2.calcOpticalFlowFarneback(
-            prev_gray, curr_gray, None,
-            pyr_scale=0.5, levels=3, winsize=15,
-            iterations=3, poly_n=5, poly_sigma=1.2, flags=0
-        )
-        
-        magnitude = np.sqrt(flow[..., 0]**2 + flow[..., 1]**2)
-        return float(np.mean(magnitude))
+        if fast_mode:
+            diff = cv2.absdiff(prev_gray, curr_gray)
+            return float(np.mean(diff))
+        else:
+            flow = cv2.calcOpticalFlowFarneback(
+                prev_gray, curr_gray, None,
+                pyr_scale=0.5, levels=3, winsize=15,
+                iterations=3, poly_n=5, poly_sigma=1.2, flags=0
+            )
+            magnitude = np.sqrt(flow[..., 0]**2 + flow[..., 1]**2)
+            return float(np.mean(magnitude))
     
     def detect_scene_change(self, prev_hist: np.ndarray, curr_hist: np.ndarray,
                            threshold: float = 0.5) -> Tuple[bool, float]:
@@ -160,13 +163,14 @@ class VideoAnalyzer:
         
         return is_change, difference
     
-    def analyze_video(self, sample_rate: int = 1, progress_callback=None) -> Dict:
+    def analyze_video(self, sample_rate: int = 1, progress_callback=None, fast_mode: bool = True) -> Dict:
         """
         Analyze the entire video and extract features.
         
         Args:
             sample_rate: Analyze every Nth frame (1 = all frames)
             progress_callback: Optional callback for progress updates
+            fast_mode: If True, use faster but less accurate analysis
             
         Returns:
             Dictionary containing all analysis results
@@ -195,11 +199,19 @@ class VideoAnalyzer:
             
             timestamp = frame_idx / self.fps
             
-            histogram = self.extract_color_histogram(frame)
-            brightness = self.calculate_brightness(frame)
-            contrast = self.calculate_contrast(frame)
-            edge_density = self.calculate_edge_density(frame)
-            dominant_colors = self.get_dominant_colors(frame)
+            if fast_mode:
+                small_frame = cv2.resize(frame, (160, 90))
+                histogram = self.extract_color_histogram(small_frame, bins=16)
+                brightness = self.calculate_brightness(small_frame)
+                contrast = self.calculate_contrast(small_frame)
+                edge_density = 0.0
+                dominant_colors = []
+            else:
+                histogram = self.extract_color_histogram(frame)
+                brightness = self.calculate_brightness(frame)
+                contrast = self.calculate_contrast(frame)
+                edge_density = self.calculate_edge_density(frame)
+                dominant_colors = self.get_dominant_colors(frame)
             
             features = FrameFeatures(
                 frame_idx=frame_idx,
@@ -213,7 +225,7 @@ class VideoAnalyzer:
             self.frame_features.append(features)
             
             if prev_frame is not None:
-                motion = self.calculate_motion(prev_frame, frame)
+                motion = self.calculate_motion(prev_frame, frame, fast_mode=fast_mode)
                 self.motion_scores.append(motion)
                 
                 is_change, confidence = self.detect_scene_change(prev_histogram, histogram)

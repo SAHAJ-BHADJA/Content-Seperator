@@ -586,7 +586,32 @@ class OpenCVVideoPlayer(QMainWindow):
         self.analyze_btn.clicked.connect(self._analyze_video)
         load_layout.addWidget(self.analyze_btn)
         
+        self.transcript_btn = QPushButton("🎤 Analyze Speech")
+        self.transcript_btn.setStyleSheet("""
+            QPushButton { background-color: #9C27B0; }
+            QPushButton:hover { background-color: #7B1FA2; }
+        """)
+        self.transcript_btn.clicked.connect(self._analyze_transcript)
+        load_layout.addWidget(self.transcript_btn)
+        
         right_layout.addWidget(load_group)
+        
+        export_group = QGroupBox("Export")
+        export_layout = QVBoxLayout(export_group)
+        
+        self.export_chapters_btn = QPushButton("📋 Copy YouTube Chapters")
+        self.export_chapters_btn.clicked.connect(self._copy_chapters)
+        export_layout.addWidget(self.export_chapters_btn)
+        
+        self.export_report_btn = QPushButton("📄 Export HTML Report")
+        self.export_report_btn.clicked.connect(self._export_report)
+        export_layout.addWidget(self.export_report_btn)
+        
+        self.export_all_btn = QPushButton("💾 Export All Formats")
+        self.export_all_btn.clicked.connect(self._export_all)
+        export_layout.addWidget(self.export_all_btn)
+        
+        right_layout.addWidget(export_group)
         
         stats_group = QGroupBox("Video Statistics")
         stats_layout = QVBoxLayout(stats_group)
@@ -784,9 +809,10 @@ class OpenCVVideoPlayer(QMainWindow):
                 QApplication.processEvents()
             
             result = segmenter.analyze(
-                video_sample_rate=10,
-                audio_segment_duration=1.0,
-                progress_callback=progress
+                video_sample_rate=60,
+                audio_segment_duration=3.0,
+                progress_callback=progress,
+                fast_mode=True
             )
             
             self.set_segmentation(result)
@@ -841,6 +867,137 @@ class OpenCVVideoPlayer(QMainWindow):
             f"Ads: {summary['ad_ratio']:.1%} ({ad_time:.0f}s)\n"
             f"Ads detected: {summary['type_counts'].get('ad', 0)}"
         )
+    
+    def _analyze_transcript(self):
+        """Analyze speech in video to detect ads by keywords."""
+        if not self.current_video_path:
+            QMessageBox.warning(self, "Error", "Please load a video first")
+            return
+        
+        self.statusBar.showMessage("Analyzing speech... (this may take a few minutes)")
+        QApplication.processEvents()
+        
+        try:
+            try:
+                from .transcript_analyzer import TranscriptAnalyzer, WHISPER_AVAILABLE
+            except ImportError:
+                from transcript_analyzer import TranscriptAnalyzer, WHISPER_AVAILABLE
+            
+            if not WHISPER_AVAILABLE:
+                QMessageBox.information(
+                    self, "Whisper Not Installed",
+                    "Speech analysis requires OpenAI Whisper.\n\n"
+                    "Install with: pip install openai-whisper\n\n"
+                    "Note: First run will download the model (~140MB)"
+                )
+                return
+            
+            def progress(val, msg=""):
+                self.statusBar.showMessage(f"Speech analysis: {msg} ({val:.0%})")
+                QApplication.processEvents()
+            
+            analyzer = TranscriptAnalyzer(self.current_video_path, model_size="base")
+            analyzer.transcribe(progress_callback=progress)
+            
+            ad_segments = analyzer.get_ad_segments()
+            intro_time = analyzer.get_intro_time()
+            outro_time = analyzer.get_outro_time()
+            
+            msg = f"Speech analysis complete!\n\n"
+            msg += f"Ad segments detected: {len(ad_segments)}\n"
+            if intro_time:
+                msg += f"Intro ends at: {int(intro_time // 60)}:{int(intro_time % 60):02d}\n"
+            if outro_time:
+                msg += f"Outro starts at: {int(outro_time // 60)}:{int(outro_time % 60):02d}\n"
+            
+            QMessageBox.information(self, "Speech Analysis", msg)
+            self.statusBar.showMessage(f"Found {len(ad_segments)} potential ad segments from speech")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Analysis Error", str(e))
+            self.statusBar.showMessage(f"Speech analysis failed: {e}")
+    
+    def _copy_chapters(self):
+        """Copy YouTube chapters to clipboard."""
+        if not self.segmentation_result:
+            QMessageBox.warning(self, "Error", "No segmentation data. Analyze video first.")
+            return
+        
+        try:
+            try:
+                from .export import export_youtube_chapters
+            except ImportError:
+                from export import export_youtube_chapters
+            
+            chapters = export_youtube_chapters(self.segmentation_result)
+            
+            clipboard = QApplication.clipboard()
+            clipboard.setText(chapters)
+            
+            self.statusBar.showMessage("YouTube chapters copied to clipboard!")
+            QMessageBox.information(self, "Copied!", 
+                "YouTube chapters copied to clipboard.\n\nPaste in your video description.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+    
+    def _export_report(self):
+        """Export HTML report."""
+        if not self.segmentation_result:
+            QMessageBox.warning(self, "Error", "No segmentation data. Analyze video first.")
+            return
+        
+        try:
+            try:
+                from .export import export_html_report
+            except ImportError:
+                from export import export_html_report
+            
+            video_name = os.path.splitext(os.path.basename(self.current_video_path))[0]
+            output_path = os.path.join(
+                os.path.dirname(self.current_video_path),
+                f"{video_name}_report.html"
+            )
+            
+            export_html_report(self.segmentation_result, output_path)
+            
+            self.statusBar.showMessage(f"Report saved: {output_path}")
+            QMessageBox.information(self, "Exported!", 
+                f"HTML report saved to:\n{output_path}\n\nOpen in browser to view.")
+            
+            os.startfile(output_path)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+    
+    def _export_all(self):
+        """Export all formats."""
+        if not self.segmentation_result:
+            QMessageBox.warning(self, "Error", "No segmentation data. Analyze video first.")
+            return
+        
+        try:
+            try:
+                from .export import export_all
+            except ImportError:
+                from export import export_all
+            
+            video_name = os.path.splitext(os.path.basename(self.current_video_path))[0]
+            output_dir = os.path.join(
+                os.path.dirname(self.current_video_path),
+                f"{video_name}_exports"
+            )
+            
+            export_all(self.segmentation_result, output_dir, video_name)
+            
+            self.statusBar.showMessage(f"All formats exported to: {output_dir}")
+            QMessageBox.information(self, "Exported!", 
+                f"All formats saved to:\n{output_dir}\n\n"
+                "Includes: JSON, CSV, SRT, HTML, YouTube chapters")
+            
+            os.startfile(output_dir)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
     
     def closeEvent(self, event):
         if self.video_thread:

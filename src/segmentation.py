@@ -163,25 +163,28 @@ class MultimodalSegmenter:
             'outro_max_from_end': 120
         }
     
-    def analyze(self, video_sample_rate: int = 5, audio_segment_duration: float = 0.5,
-                progress_callback=None) -> SegmentationResult:
+    def analyze(self, video_sample_rate: int = 30, audio_segment_duration: float = 2.0,
+                progress_callback=None, fast_mode: bool = True) -> SegmentationResult:
         """
         Perform complete multimodal analysis and segmentation.
         
         Args:
-            video_sample_rate: Analyze every Nth video frame
-            audio_segment_duration: Duration of audio analysis segments
+            video_sample_rate: Analyze every Nth video frame (higher = faster)
+            audio_segment_duration: Duration of audio analysis segments (higher = faster)
             progress_callback: Optional callback for progress updates
+            fast_mode: Use fast analysis mode
             
         Returns:
             SegmentationResult containing all detected segments
         """
         if progress_callback:
             progress_callback(0.0, "Analyzing video features...")
-        self.video_features = self.video_analyzer.analyze_video(sample_rate=video_sample_rate)
+        self.video_features = self.video_analyzer.analyze_video(
+            sample_rate=video_sample_rate, fast_mode=fast_mode
+        )
         
         if progress_callback:
-            progress_callback(0.4, "Analyzing audio features...")
+            progress_callback(0.6, "Analyzing audio features...")
         self.audio_features = self.audio_analyzer.analyze_audio(segment_duration=audio_segment_duration)
         
         if progress_callback:

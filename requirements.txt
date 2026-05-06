@@ -24,6 +24,9 @@ ffmpeg-python>=0.2.0
 # Audio playback
 pygame>=2.5.0
 
+# Speech recognition (optional - for transcript analysis)
+# openai-whisper>=20230314
+
 # Utilities
 tqdm>=4.65.0
 matplotlib>=3.7.0
