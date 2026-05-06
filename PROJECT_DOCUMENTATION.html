@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CSCI 576 - Multimodal Video Segmentation Project Documentation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            color: #1a5f7a;
+            border-bottom: 3px solid #1a5f7a;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2c3e50;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+            margin-top: 40px;
+        }
+        h3 {
+            color: #34495e;
+            margin-top: 25px;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        .important {
+            background: #d4edda;
+            padding: 15px;
+            border-left: 4px solid #28a745;
+            margin: 20px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #1a5f7a;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        .qa-section {
+            background: #e8f4f8;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .qa-section h4 {
+            color: #1a5f7a;
+            margin-top: 0;
+        }
+        .architecture {
+            background: #f8f9fa;
+            padding: 20px;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .flow-diagram {
+            text-align: center;
+            font-family: monospace;
+            background: #fff;
+            padding: 20px;
+            border: 1px solid #ccc;
+        }
+        @media print {
+            body { padding: 20px; }
+            .page-break { page-break-before: always; }
+        }
+    </style>
+</head>
+<body>
+
+<h1>CSCI 576 - Multimodal Video Segmentation Project</h1>
+<p><strong>Course:</strong> Multimedia System Design | <strong>Instructor:</strong> Parag Havaldar</p>
+<p><strong>Project:</strong> Multimodal Segmentation of Long-Form Online Video into Content and Non-Content</p>
+
+<h2>1. Project Overview</h2>
+
+<p>This project implements an end-to-end system that automatically segments long-form videos into <strong>core content</strong> and <strong>non-content</strong> (ads, intros, outros, etc.) using multimodal analysis of visual, audio, and speech signals.</p>
+
+<h3>Key Features</h3>
+<ul>
+    <li><strong>Multimodal Analysis:</strong> Combines visual features, audio features, and speech transcripts</li>
+    <li><strong>Interactive Video Player:</strong> Custom player with segment timeline and navigation</li>
+    <li><strong>Auto-Skip Functionality:</strong> Automatically skip detected advertisements</li>
+    <li><strong>Export Capabilities:</strong> YouTube chapters, HTML reports, CSV, SRT subtitles</li>
+    <li><strong>Speech Analysis:</strong> Whisper-based transcript analysis for ad keyword detection</li>
+</ul>
+
+<h2>2. Setup and Installation</h2>
+
+<h3>Prerequisites</h3>
+<ul>
+    <li>Python 3.8 or higher</li>
+    <li>FFmpeg (for audio extraction)</li>
+    <li>Git (for version control)</li>
+</ul>
+
+<h3>Installation Steps</h3>
+
+<pre>
+# 1. Clone the repository
+git clone https://github.com/SAHAJ-BHADJA/Content-Seperator.git
+cd Content-Seperator
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Install FFmpeg (if not already installed)
+# Windows: Download from https://ffmpeg.org/download.html
+# Or using conda:
+conda install -y ffmpeg -c conda-forge
+
+# 4. (Optional) Install Whisper for speech analysis
+pip install openai-whisper
+
+# 5. Run the application
+python main.py
+</pre>
+
+<h3>Project Structure</h3>
+<pre>
+Project/
+├── main.py                    # Main entry point
+├── requirements.txt           # Python dependencies
+├── src/
+│   ├── video_analyzer.py      # Visual feature extraction
+│   ├── audio_analyzer.py      # Audio feature extraction
+│   ├── transcript_analyzer.py # Speech-to-text analysis
+│   ├── segmentation.py        # Segment classification logic
+│   ├── opencv_player.py       # Interactive video player
+│   ├── export.py              # Export formats (YouTube, HTML, CSV)
+│   ├── evaluation.py          # Accuracy metrics
+│   └── utils.py               # Utility functions
+├── videos_with_ads/           # Test videos
+└── video_info/                # Ground truth JSON files
+</pre>
+
+<div class="page-break"></div>
+
+<h2>3. System Architecture</h2>
+
+<div class="architecture">
+<div class="flow-diagram">
+<pre>
+┌─────────────────────────────────────────────────────────────────┐
+│                         INPUT VIDEO                              │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+┌───────────────┐       ┌───────────────┐       ┌───────────────┐
+│    VISUAL     │       │     AUDIO     │       │    SPEECH     │
+│   ANALYZER    │       │   ANALYZER    │       │   ANALYZER    │
+├───────────────┤       ├───────────────┤       ├───────────────┤
+│ • Color Hist  │       │ • RMS Energy  │       │ • Whisper STT │
+│ • Scene Chg   │       │ • Spectral    │       │ • Keyword Det │
+│ • Motion Est  │       │ • Music Prob  │       │ • Ad Phrases  │
+│ • Brightness  │       │ • Zero Cross  │       │ • Intro/Outro │
+└───────────────┘       └───────────────┘       └───────────────┘
+        │                       │                       │
+        └───────────────────────┼───────────────────────┘
+                                ▼
+                ┌───────────────────────────┐
+                │   MULTIMODAL CLASSIFIER   │
+                │   (Feature Fusion)        │
+                └───────────────────────────┘
+                                │
+                                ▼
+                ┌───────────────────────────┐
+                │   SEGMENTATION RESULT     │
+                │   [Content | Ad | Intro]  │
+                └───────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+┌───────────────┐       ┌───────────────┐       ┌───────────────┐
+│    PLAYER     │       │    EXPORT     │       │    REPORT     │
+│  • Timeline   │       │  • YouTube    │       │  • HTML       │
+│  • Navigation │       │  • CSV/SRT    │       │  • Statistics │
+│  • Auto-skip  │       │  • JSON       │       │  • Timeline   │
+└───────────────┘       └───────────────┘       └───────────────┘
+</pre>
+</div>
+</div>
+
+<h2>4. Multimodal Signal Analysis</h2>
+
+<h3>4.1 Visual Analysis (video_analyzer.py)</h3>
+
+<table>
+    <tr>
+        <th>Feature</th>
+        <th>Description</th>
+        <th>Purpose</th>
+    </tr>
+    <tr>
+        <td><strong>Color Histogram</strong></td>
+        <td>HSV color distribution (Hue, Saturation, Value)</td>
+        <td>Detect visual style changes (ads often have different color schemes)</td>
+    </tr>
+    <tr>
+        <td><strong>Scene Change Detection</strong></td>
+        <td>Histogram correlation between consecutive frames</td>
+        <td>Identify segment boundaries (cuts between content and ads)</td>
+    </tr>
+    <tr>
+        <td><strong>Motion Estimation</strong></td>
+        <td>Frame differencing / Optical flow magnitude</td>
+        <td>Detect static screens (intros, holding screens, transitions)</td>
+    </tr>
+    <tr>
+        <td><strong>Brightness/Contrast</strong></td>
+        <td>Mean luminance and standard deviation</td>
+        <td>Identify black screens, fade transitions</td>
+    </tr>
+    <tr>
+        <td><strong>Edge Density</strong></td>
+        <td>Canny edge detection ratio</td>
+        <td>Distinguish text overlays from natural content</td>
+    </tr>
+    <tr>
+        <td><strong>Dominant Colors</strong></td>
+        <td>K-means clustering on pixel colors</td>
+        <td>Detect branded content (sponsor logos have distinct colors)</td>
+    </tr>
+</table>
+
+<h3>4.2 Audio Analysis (audio_analyzer.py)</h3>
+
+<table>
+    <tr>
+        <th>Feature</th>
+        <th>Description</th>
+        <th>Purpose</th>
+    </tr>
+    <tr>
+        <td><strong>RMS Energy</strong></td>
+        <td>Root Mean Square of audio amplitude</td>
+        <td>Detect silence, low-energy segments, dead air</td>
+    </tr>
+    <tr>
+        <td><strong>Spectral Centroid</strong></td>
+        <td>Center of mass of the frequency spectrum</td>
+        <td>Distinguish music (higher) from speech (lower)</td>
+    </tr>
+    <tr>
+        <td><strong>Zero Crossing Rate</strong></td>
+        <td>Rate of sign changes in the signal</td>
+        <td>Differentiate speech from music/noise</td>
+    </tr>
+    <tr>
+        <td><strong>Spectral Rolloff</strong></td>
+        <td>Frequency below which 85% of energy exists</td>
+        <td>Detect music segments (intros often have music)</td>
+    </tr>
+    <tr>
+        <td><strong>Spectral Flatness</strong></td>
+        <td>How noise-like vs tonal the audio is</td>
+        <td>Identify background music vs speech</td>
+    </tr>
+    <tr>
+        <td><strong>Music Probability</strong></td>
+        <td>Combined metric estimating music presence</td>
+        <td>Flag intro/outro segments with background music</td>
+    </tr>
+</table>
+
+<h3>4.3 Speech Analysis (transcript_analyzer.py)</h3>
+
+<table>
+    <tr>
+        <th>Feature</th>
+        <th>Description</th>
+        <th>Purpose</th>
+    </tr>
+    <tr>
+        <td><strong>Speech-to-Text</strong></td>
+        <td>OpenAI Whisper transcription</td>
+        <td>Convert spoken words to searchable text</td>
+    </tr>
+    <tr>
+        <td><strong>Ad Keyword Detection</strong></td>
+        <td>Match against known ad phrases</td>
+        <td>"Sponsored by", "use code", "check the link"</td>
+    </tr>
+    <tr>
+        <td><strong>Intro Keywords</strong></td>
+        <td>Detect greeting patterns</td>
+        <td>"Welcome back", "in this video", "let's get started"</td>
+    </tr>
+    <tr>
+        <td><strong>Outro Keywords</strong></td>
+        <td>Detect closing patterns</td>
+        <td>"Thanks for watching", "see you next time", "subscribe"</td>
+    </tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>5. How Signals Combine for Classification</h2>
+
+<div class="important">
+<strong>Multimodal Fusion Strategy:</strong> The system uses a rule-based classifier that combines evidence from all three modalities. Each modality provides confidence scores, and the final classification is determined by weighted voting.
+</div>
+
+<h3>Classification Logic</h3>
+
+<pre>
+def classify_segment(visual_features, audio_features, speech_features):
+    
+    # 1. Check for silence/dead air (Audio dominant)
+    if audio.rms_energy < SILENCE_THRESHOLD:
+        return "SILENCE"
+    
+    # 2. Check for intro/outro (Music + Keywords)
+    if audio.music_probability > 0.7 and is_near_start:
+        return "INTRO"
+    if audio.music_probability > 0.7 and is_near_end:
+        return "OUTRO"
+    
+    # 3. Check for ads (Speech keywords + Visual changes)
+    if speech.has_ad_keywords or visual.scene_change_detected:
+        if speech.confidence > 0.8:
+            return "AD"
+    
+    # 4. Check for transitions (Low motion + Scene change)
+    if visual.motion < LOW_MOTION_THRESHOLD and visual.is_static:
+        return "TRANSITION"
+    
+    # 5. Default to core content
+    return "CORE_CONTENT"
+</pre>
+
+<h3>Feature Weighting</h3>
+
+<table>
+    <tr>
+        <th>Segment Type</th>
+        <th>Primary Signal</th>
+        <th>Supporting Signals</th>
+    </tr>
+    <tr>
+        <td>Advertisement</td>
+        <td>Speech keywords (60%)</td>
+        <td>Scene changes (25%), Color shift (15%)</td>
+    </tr>
+    <tr>
+        <td>Intro</td>
+        <td>Music detection (50%)</td>
+        <td>Position in video (30%), Speech keywords (20%)</td>
+    </tr>
+    <tr>
+        <td>Outro</td>
+        <td>Music detection (50%)</td>
+        <td>Position in video (30%), Speech keywords (20%)</td>
+    </tr>
+    <tr>
+        <td>Silence</td>
+        <td>Audio RMS energy (90%)</td>
+        <td>Visual motion (10%)</td>
+    </tr>
+    <tr>
+        <td>Transition</td>
+        <td>Visual motion (60%)</td>
+        <td>Scene change (40%)</td>
+    </tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>6. Presentation Demo Guide</h2>
+
+<h3>Step-by-Step Demo</h3>
+
+<ol>
+    <li><strong>Launch Application:</strong>
+        <pre>python main.py</pre>
+    </li>
+    <li><strong>Load Video:</strong> Click "Open Video File" → Select test video</li>
+    <li><strong>Analyze Video:</strong> Click "Analyze Video" → Watch progress → See timeline populate</li>
+    <li><strong>Show Timeline:</strong> Point out color-coded segments (Green=Content, Red=Ad, Blue=Intro)</li>
+    <li><strong>Navigate:</strong> Click on timeline to jump to segments</li>
+    <li><strong>Auto-Skip:</strong> Enable "Auto-skip ads" → Play through an ad → Watch it skip</li>
+    <li><strong>Speech Analysis:</strong> Click "Analyze Speech" → Show detected keywords</li>
+    <li><strong>Export:</strong> Click "Copy YouTube Chapters" → Paste to show format</li>
+    <li><strong>Report:</strong> Click "Export HTML Report" → Show visual report in browser</li>
+</ol>
+
+<div class="page-break"></div>
+
+<h2>7. Expected Questions & Answers</h2>
+
+<div class="qa-section">
+<h4>Q1: How does your system detect advertisements?</h4>
+<p><strong>Answer:</strong> We use a multimodal approach combining three signals:</p>
+<ul>
+    <li><strong>Speech:</strong> Whisper transcribes audio, then we search for ad keywords like "sponsored by", "use code", "check the link below"</li>
+    <li><strong>Visual:</strong> Scene change detection identifies cuts between main content and ad segments</li>
+    <li><strong>Audio:</strong> Spectral analysis detects changes in audio characteristics (ads often have different audio mixing)</li>
+</ul>
+</div>
+
+<div class="qa-section">
+<h4>Q2: Why use multiple modalities instead of just one?</h4>
+<p><strong>Answer:</strong> No single modality is sufficient:</p>
+<ul>
+    <li>Visual alone fails when ads look similar to content</li>
+    <li>Audio alone fails when there's no music transition</li>
+    <li>Speech alone fails for visual-only ads or non-English content</li>
+    <li>Combining them provides robustness through redundancy</li>
+</ul>
+</div>
+
+<div class="qa-section">
+<h4>Q3: How do you detect scene changes?</h4>
+<p><strong>Answer:</strong> We compute color histograms (HSV) for consecutive frames and calculate their correlation. When correlation drops below a threshold (e.g., 0.7), we mark it as a scene change. Large drops indicate hard cuts, smaller drops indicate gradual transitions.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q4: What is the Spectral Centroid and why is it useful?</h4>
+<p><strong>Answer:</strong> Spectral centroid is the "center of mass" of the frequency spectrum - essentially where most audio energy is concentrated. Music typically has a higher centroid (more high frequencies) than speech. We use this to detect intro/outro music segments.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q5: How does motion estimation work?</h4>
+<p><strong>Answer:</strong> We use two methods:</p>
+<ul>
+    <li><strong>Fast mode:</strong> Frame differencing - subtract consecutive grayscale frames and measure average pixel difference</li>
+    <li><strong>Accurate mode:</strong> Optical flow (Farneback algorithm) - computes pixel motion vectors between frames</li>
+</ul>
+<p>Low motion indicates static screens like intros, transitions, or holding screens.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q6: How do you handle synchronization between video and audio?</h4>
+<p><strong>Answer:</strong> We use OpenCV for video frames and Pygame for audio playback. When seeking, we update both simultaneously. The video thread emits the current position, and we sync the audio player to match. Pygame's mixer allows precise seeking in milliseconds.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q7: What is Zero Crossing Rate and what does it indicate?</h4>
+<p><strong>Answer:</strong> ZCR measures how often the audio signal crosses zero amplitude per second. Speech has moderate ZCR (periodic vocal patterns), music has variable ZCR, and noise has high ZCR. This helps distinguish speech from background music.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q8: How accurate is your system?</h4>
+<p><strong>Answer:</strong> Accuracy depends on the video type. For videos with clear ad transitions and spoken sponsorship mentions, we achieve high precision. The system includes an evaluation module that computes Precision, Recall, F1-score, and IoU against ground truth annotations.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q9: Why did you use OpenCV instead of Qt's built-in media player?</h4>
+<p><strong>Answer:</strong> Qt's QMediaPlayer relies on system codecs which vary across platforms. On Windows, it often fails with certain video formats. OpenCV provides consistent cross-platform video decoding using its own backends (FFmpeg), ensuring reliable playback regardless of system configuration.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q10: How would you improve the system if you had more time?</h4>
+<p><strong>Answer:</strong> Potential improvements include:</p>
+<ul>
+    <li>Deep learning models (CNN for visual, LSTM for temporal patterns)</li>
+    <li>Cross-episode repetition detection for recurring intros</li>
+    <li>User feedback loop to improve classification over time</li>
+    <li>Real-time processing for live streams</li>
+    <li>OCR to detect sponsor text overlays</li>
+</ul>
+</div>
+
+<div class="qa-section">
+<h4>Q11: What is the Music Probability metric?</h4>
+<p><strong>Answer:</strong> It's a combined score from multiple audio features:</p>
+<pre>music_prob = 0.4 * normalized_spectral_centroid 
+           + 0.3 * spectral_rolloff_ratio 
+           + 0.3 * (1 - spectral_flatness)</pre>
+<p>High centroid, high rolloff, and low flatness together indicate music presence.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q12: How do you handle videos in languages other than English?</h4>
+<p><strong>Answer:</strong> Whisper supports 99+ languages and auto-detects the language. The keyword detection currently focuses on English phrases, but the visual and audio analysis is language-independent. The system can be extended with multilingual keyword lists.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q13: What export formats does your system support?</h4>
+<p><strong>Answer:</strong></p>
+<ul>
+    <li><strong>YouTube Chapters:</strong> Timestamp format for video descriptions</li>
+    <li><strong>HTML Report:</strong> Visual timeline with statistics</li>
+    <li><strong>CSV:</strong> Spreadsheet-compatible segment data</li>
+    <li><strong>SRT:</strong> Subtitle format with chapter markers</li>
+    <li><strong>JSON:</strong> Full metadata for programmatic use</li>
+    <li><strong>EDL:</strong> Edit Decision List for video editors</li>
+</ul>
+</div>
+
+<div class="qa-section">
+<h4>Q14: How does the auto-skip feature work?</h4>
+<p><strong>Answer:</strong> During playback, we continuously check if the current position falls within an "AD" segment. If auto-skip is enabled and we enter an ad segment, we immediately seek to the segment's end time and continue playing. The status bar shows which ad was skipped.</p>
+</div>
+
+<div class="qa-section">
+<h4>Q15: What is the timeline showing in the player?</h4>
+<p><strong>Answer:</strong> The timeline is a visual representation of the entire video with color-coded segments:</p>
+<ul>
+    <li><strong>Green:</strong> Core content (main video)</li>
+    <li><strong>Red:</strong> Advertisement/Sponsorship</li>
+    <li><strong>Blue:</strong> Intro</li>
+    <li><strong>Purple:</strong> Outro</li>
+    <li><strong>Yellow:</strong> Transition</li>
+    <li><strong>Gray:</strong> Silence/Dead air</li>
+</ul>
+<p>Clicking anywhere on the timeline seeks to that position.</p>
+</div>
+
+<h2>8. Technical Specifications</h2>
+
+<table>
+    <tr><th>Component</th><th>Technology</th></tr>
+    <tr><td>Language</td><td>Python 3.8+</td></tr>
+    <tr><td>Video Processing</td><td>OpenCV (cv2)</td></tr>
+    <tr><td>Audio Processing</td><td>SciPy, NumPy</td></tr>
+    <tr><td>Audio Extraction</td><td>FFmpeg</td></tr>
+    <tr><td>Speech Recognition</td><td>OpenAI Whisper</td></tr>
+    <tr><td>GUI Framework</td><td>PyQt5</td></tr>
+    <tr><td>Audio Playback</td><td>Pygame</td></tr>
+    <tr><td>Data Export</td><td>JSON, CSV, HTML</td></tr>
+</table>
+
+<h2>9. Conclusion</h2>
+
+<p>This project demonstrates a practical multimodal approach to video segmentation. By combining visual analysis (color, motion, scene changes), audio analysis (energy, spectral features), and speech analysis (keyword detection), the system can effectively identify and classify non-content segments in long-form videos.</p>
+
+<p>The interactive player provides a user-friendly interface for navigating segmented videos, while the export features enable integration with platforms like YouTube and video editing software.</p>
+
+<div class="highlight">
+<strong>Key Takeaway:</strong> Multimodal fusion is essential because no single signal reliably identifies all types of non-content. The combination of visual, audio, and speech analysis provides robust detection across diverse video types.
+</div>
+
+<hr>
+<p style="text-align: center; color: #666;">
+    CSCI 576 - Multimedia System Design | Spring 2026<br>
+    Multimodal Video Segmentation Project
+</p>
+
+</body>
+</html>
