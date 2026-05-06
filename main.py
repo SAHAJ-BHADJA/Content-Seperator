@@ -33,10 +33,16 @@ def setup_path():
 
 
 def launch_player(video_path=None, segmentation_path=None):
-    """Launch the interactive video player."""
+    """Launch the interactive video player (OpenCV-based for better compatibility)."""
     setup_path()
-    from src.video_player import run_player
-    run_player(video_path, segmentation_path)
+    from src.opencv_player import run_opencv_player
+    
+    if video_path is None:
+        videos_dir = get_project_root() / 'videos_with_ads'
+        videos = list(videos_dir.glob('*.mp4'))
+        video_path = str(videos[0]) if videos else None
+    
+    run_opencv_player(video_path)
 
 
 def analyze_video(video_path, output_path=None, use_ground_truth=False, info_dir=None):
