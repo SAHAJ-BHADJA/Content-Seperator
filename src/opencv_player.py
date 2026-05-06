@@ -1,12 +1,15 @@
 """
-OpenCV-based Video Player with Segment Timeline
-Alternative player using OpenCV for reliable video playback on Windows.
+OpenCV-based Video Player with Synchronized Audio and Segment Timeline
+Complete player using OpenCV for video and pygame for audio playback.
 """
 
 import sys
 import os
 import cv2
 import numpy as np
+import subprocess
+import tempfile
+import threading
 from typing import List, Dict, Optional
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -19,6 +22,12 @@ from PyQt5.QtGui import (
     QPainter, QColor, QPen, QBrush, QFont, QLinearGradient,
     QPalette, QMouseEvent, QFontMetrics, QImage, QPixmap
 )
+
+try:
+    import pygame
+    PYGAME_AVAILABLE = True
+except ImportError:
+    PYGAME_AVAILABLE = False
 
 try:
     from .segmentation import SegmentationResult, VideoSegment, SegmentType
@@ -49,8 +58,123 @@ SEGMENT_LABELS = {
 }
 
 
+class AudioPlayer:
+    """Handles audio playback synchronized with video."""
+    
+    def __init__(self, video_path: str):
+        self.video_path = video_path
+        self.audio_file = None
+        self.is_playing = False
+        self.duration = 0
+        self._initialized = False
+        
+        if PYGAME_AVAILABLE:
+            try:
+                pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
+                self._extract_audio()
+                self._initialized = True
+            except Exception as e:
+                print(f"Audio init error: {e}")
+    
+    def _extract_audio(self):
+        """Extract audio from video using ffmpeg."""
+        try:
+            fd, self.audio_file = tempfile.mkstemp(suffix='.mp3')
+            os.close(fd)
+            
+            cmd = [
+                'ffmpeg', '-y', '-i', self.video_path,
+                '-vn', '-acodec', 'libmp3lame', '-ar', '44100', '-ac', '2',
+                '-q:a', '2', self.audio_file
+            ]
+            
+            result = subprocess.run(
+                cmd, capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            
+            if result.returncode == 0 and os.path.exists(self.audio_file):
+                pygame.mixer.music.load(self.audio_file)
+                return True
+        except Exception as e:
+            print(f"Audio extraction error: {e}")
+        return False
+    
+    def play(self, start_pos: float = 0):
+        """Start audio playback from position (seconds)."""
+        if not self._initialized:
+            return
+        try:
+            pygame.mixer.music.play(start=start_pos)
+            self.is_playing = True
+        except:
+            pass
+    
+    def pause(self):
+        """Pause audio playback."""
+        if not self._initialized:
+            return
+        try:
+            pygame.mixer.music.pause()
+            self.is_playing = False
+        except:
+            pass
+    
+    def unpause(self):
+        """Resume audio playback."""
+        if not self._initialized:
+            return
+        try:
+            pygame.mixer.music.unpause()
+            self.is_playing = True
+        except:
+            pass
+    
+    def stop(self):
+        """Stop audio playback."""
+        if not self._initialized:
+            return
+        try:
+            pygame.mixer.music.stop()
+            self.is_playing = False
+        except:
+            pass
+    
+    def seek(self, position: float):
+        """Seek to position (seconds)."""
+        if not self._initialized:
+            return
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.music.play(start=position)
+            if not self.is_playing:
+                pygame.mixer.music.pause()
+        except:
+            pass
+    
+    def set_volume(self, volume: float):
+        """Set volume (0.0 to 1.0)."""
+        if not self._initialized:
+            return
+        try:
+            pygame.mixer.music.set_volume(volume)
+        except:
+            pass
+    
+    def cleanup(self):
+        """Clean up resources."""
+        try:
+            if self._initialized:
+                pygame.mixer.music.stop()
+                pygame.mixer.quit()
+            if self.audio_file and os.path.exists(self.audio_file):
+                os.remove(self.audio_file)
+        except:
+            pass
+
+
 class VideoThread(QThread):
-    """Thread for video frame capture."""
+    """Thread for video frame capture with audio sync."""
     frame_ready = pyqtSignal(np.ndarray, float)
     finished_playing = pyqtSignal()
     
@@ -122,7 +246,6 @@ class VideoDisplay(QLabel):
         h, w, ch = frame.shape
         bytes_per_line = ch * w
         qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        
         scaled = qimg.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.setPixmap(QPixmap.fromImage(scaled))
 
@@ -312,7 +435,7 @@ class SegmentListWidget(QWidget):
 
 
 class OpenCVVideoPlayer(QMainWindow):
-    """Main video player using OpenCV backend."""
+    """Main video player with synchronized audio."""
     
     def __init__(self):
         super().__init__()
@@ -356,9 +479,11 @@ class OpenCVVideoPlayer(QMainWindow):
         """)
         
         self.video_thread: Optional[VideoThread] = None
+        self.audio_player: Optional[AudioPlayer] = None
         self.segmentation_result: Optional[SegmentationResult] = None
         self.auto_skip_enabled = False
         self.current_video_path = None
+        self.is_playing = False
         
         self._setup_ui()
     
@@ -383,8 +508,10 @@ class OpenCVVideoPlayer(QMainWindow):
         left_layout.addWidget(self.timeline)
         
         legend_layout = QHBoxLayout()
-        legend_layout.addWidget(QLabel("Content (green)"))
-        legend_layout.addWidget(QLabel("Advertisement (red)"))
+        legend_layout.addWidget(QLabel("🟢 Content"))
+        legend_layout.addWidget(QLabel("🔴 Advertisement"))
+        legend_layout.addWidget(QLabel("🔵 Intro"))
+        legend_layout.addWidget(QLabel("🟣 Outro"))
         legend_layout.addStretch()
         left_layout.addLayout(legend_layout)
         
@@ -420,6 +547,16 @@ class OpenCVVideoPlayer(QMainWindow):
         self.time_label.setMinimumWidth(120)
         controls.addWidget(self.time_label)
         
+        controls.addSpacing(10)
+        
+        controls.addWidget(QLabel("Vol:"))
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(70)
+        self.volume_slider.setMaximumWidth(100)
+        self.volume_slider.valueChanged.connect(self._set_volume)
+        controls.addWidget(self.volume_slider)
+        
         controls.addStretch()
         
         self.auto_skip_cb = QCheckBox("Auto-skip ads")
@@ -437,9 +574,17 @@ class OpenCVVideoPlayer(QMainWindow):
         load_group = QGroupBox("Load Video")
         load_layout = QVBoxLayout(load_group)
         
-        self.load_btn = QPushButton("Open Video File")
+        self.load_btn = QPushButton("📂 Open Video File")
         self.load_btn.clicked.connect(self._open_file)
         load_layout.addWidget(self.load_btn)
+        
+        self.analyze_btn = QPushButton("🔍 Analyze Video")
+        self.analyze_btn.setStyleSheet("""
+            QPushButton { background-color: #2196F3; }
+            QPushButton:hover { background-color: #1976D2; }
+        """)
+        self.analyze_btn.clicked.connect(self._analyze_video)
+        load_layout.addWidget(self.analyze_btn)
         
         right_layout.addWidget(load_group)
         
@@ -450,7 +595,7 @@ class OpenCVVideoPlayer(QMainWindow):
         stats_layout.addWidget(self.stats_label)
         right_layout.addWidget(stats_group)
         
-        segments_group = QGroupBox("Segments")
+        segments_group = QGroupBox("Segments (click to jump)")
         segments_layout = QVBoxLayout(segments_group)
         
         scroll = QScrollArea()
@@ -468,31 +613,44 @@ class OpenCVVideoPlayer(QMainWindow):
         
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
-        self.statusBar.showMessage("Ready - Click 'Open Video File' to start")
+        self.statusBar.showMessage("Ready - Open a video file to start")
     
     def load_video(self, video_path: str):
         if self.video_thread:
             self.video_thread.stop()
             self.video_thread.wait()
+        if self.audio_player:
+            self.audio_player.cleanup()
         
         if not os.path.exists(video_path):
             QMessageBox.warning(self, "Error", f"File not found: {video_path}")
             return
         
         self.current_video_path = video_path
+        self.is_playing = False
+        self.play_btn.setText("▶ Play")
+        
+        self.statusBar.showMessage(f"Loading: {os.path.basename(video_path)}...")
+        QApplication.processEvents()
+        
         self.video_thread = VideoThread(video_path)
         self.video_thread.frame_ready.connect(self._on_frame)
         self.video_thread.finished_playing.connect(self._on_finished)
         self.video_thread.start()
         
-        QTimer.singleShot(200, self._init_video_info)
+        self.audio_player = AudioPlayer(video_path)
+        self.audio_player.set_volume(self.volume_slider.value() / 100.0)
+        
+        QTimer.singleShot(500, self._init_video_info)
         
         self.setWindowTitle(f"CSCI 576 Player - {os.path.basename(video_path)}")
-        self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)}")
         
         info_path = self._find_info_file(video_path)
         if info_path:
             self._load_ground_truth(video_path, info_path)
+            self.statusBar.showMessage(f"Loaded with ground truth: {os.path.basename(video_path)}")
+        else:
+            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} (no segmentation - click Analyze)")
     
     def _init_video_info(self):
         if self.video_thread:
@@ -516,32 +674,53 @@ class OpenCVVideoPlayer(QMainWindow):
                 if seg.start_time <= position < seg.start_time + 0.5:
                     if seg.segment_type == SegmentType.AD:
                         self._seek(seg.end_time)
-                        self.statusBar.showMessage(f"Auto-skipped advertisement")
+                        self.statusBar.showMessage(f"Auto-skipped advertisement ({seg.duration:.0f}s)")
                         break
     
     def _on_finished(self):
+        self.is_playing = False
         self.play_btn.setText("▶ Play")
+        if self.audio_player:
+            self.audio_player.stop()
     
     def _toggle_play(self):
         if not self.video_thread:
             return
         
-        if self.video_thread.playing:
+        if self.is_playing:
             self.video_thread.pause()
+            if self.audio_player:
+                self.audio_player.pause()
             self.play_btn.setText("▶ Play")
+            self.is_playing = False
         else:
             self.video_thread.play()
+            if self.audio_player:
+                self.audio_player.seek(self.video_thread.current_pos)
+                self.audio_player.unpause()
             self.play_btn.setText("⏸ Pause")
+            self.is_playing = True
     
     def _stop(self):
         if self.video_thread:
             self.video_thread.pause()
             self.video_thread.seek(0)
-            self.play_btn.setText("▶ Play")
+        if self.audio_player:
+            self.audio_player.stop()
+        self.play_btn.setText("▶ Play")
+        self.is_playing = False
     
     def _seek(self, position: float):
         if self.video_thread:
             self.video_thread.seek(position)
+        if self.audio_player:
+            self.audio_player.seek(position)
+            if not self.is_playing:
+                self.audio_player.pause()
+    
+    def _set_volume(self, value: int):
+        if self.audio_player:
+            self.audio_player.set_volume(value / 100.0)
     
     def _prev_segment(self):
         if not self.segmentation_result or not self.video_thread:
@@ -573,7 +752,7 @@ class OpenCVVideoPlayer(QMainWindow):
             if seg.start_time <= current < seg.end_time:
                 if seg.segment_type in [SegmentType.AD, SegmentType.INTRO, SegmentType.OUTRO]:
                     self._seek(seg.end_time)
-                    self.statusBar.showMessage(f"Skipped {SEGMENT_LABELS[seg.segment_type]}")
+                    self.statusBar.showMessage(f"Skipped {SEGMENT_LABELS[seg.segment_type]} ({seg.duration:.0f}s)")
                 return
     
     def _open_file(self):
@@ -583,6 +762,39 @@ class OpenCVVideoPlayer(QMainWindow):
         )
         if file_path:
             self.load_video(file_path)
+    
+    def _analyze_video(self):
+        if not self.current_video_path:
+            QMessageBox.warning(self, "Error", "Please load a video first")
+            return
+        
+        self.statusBar.showMessage("Analyzing video... (this may take a few minutes)")
+        QApplication.processEvents()
+        
+        try:
+            try:
+                from .segmentation import MultimodalSegmenter
+            except ImportError:
+                from segmentation import MultimodalSegmenter
+            
+            segmenter = MultimodalSegmenter(self.current_video_path)
+            
+            def progress(val, msg=""):
+                self.statusBar.showMessage(f"Analyzing: {msg} ({val:.0%})")
+                QApplication.processEvents()
+            
+            result = segmenter.analyze(
+                video_sample_rate=10,
+                audio_segment_duration=1.0,
+                progress_callback=progress
+            )
+            
+            self.set_segmentation(result)
+            self.statusBar.showMessage(f"Analysis complete - {len(result.segments)} segments detected")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Analysis Error", str(e))
+            self.statusBar.showMessage(f"Analysis failed: {e}")
     
     def _find_info_file(self, video_path: str) -> Optional[str]:
         video_dir = os.path.dirname(video_path)
@@ -609,7 +821,6 @@ class OpenCVVideoPlayer(QMainWindow):
             segmenter = GroundTruthSegmenter(video_path, info_path)
             result = segmenter.get_segmentation()
             self.set_segmentation(result)
-            self.statusBar.showMessage(f"Loaded with ground truth segmentation")
         except Exception as e:
             self.statusBar.showMessage(f"Could not load ground truth: {e}")
     
@@ -628,13 +839,15 @@ class OpenCVVideoPlayer(QMainWindow):
             f"Segments: {len(result.segments)}\n"
             f"Content: {summary['content_ratio']:.1%} ({content_time:.0f}s)\n"
             f"Ads: {summary['ad_ratio']:.1%} ({ad_time:.0f}s)\n"
-            f"Ads inserted: {result.metadata.get('num_ads', 0)}"
+            f"Ads detected: {summary['type_counts'].get('ad', 0)}"
         )
     
     def closeEvent(self, event):
         if self.video_thread:
             self.video_thread.stop()
             self.video_thread.wait()
+        if self.audio_player:
+            self.audio_player.cleanup()
         super().closeEvent(event)
 
 

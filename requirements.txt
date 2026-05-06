@@ -21,6 +21,9 @@ PyQt5>=5.15.0
 moviepy>=1.0.3
 ffmpeg-python>=0.2.0
 
+# Audio playback
+pygame>=2.5.0
+
 # Utilities
 tqdm>=4.65.0
 matplotlib>=3.7.0
