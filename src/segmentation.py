@@ -152,15 +152,16 @@ class MultimodalSegmenter:
         self.segments: List[VideoSegment] = []
         
         self.thresholds = {
-            'scene_change_density': 0.5,
+            'scene_change_density': 0.8,
+            'scene_change_confidence': 0.6,
             'brightness_change': 50,
-            'volume_spike': 0.3,
+            'volume_spike': 0.5,
             'silence_threshold': 0.02,
             'music_threshold': 0.6,
-            'min_segment_duration': 3.0,
-            'ad_duration_range': (15, 180),
-            'intro_max_duration': 60,
-            'outro_max_from_end': 120
+            'min_segment_duration': 15.0,
+            'ad_duration_range': (15, 120),
+            'intro_max_duration': 30,
+            'outro_max_from_end': 60
         }
     
     def analyze(self, video_sample_rate: int = 30, audio_segment_duration: float = 2.0,
@@ -219,7 +220,7 @@ class MultimodalSegmenter:
         boundaries = [0.0]
         
         for sc in self.video_features.get('scene_changes', []):
-            if sc.confidence > 0.4:
+            if sc.confidence > self.thresholds['scene_change_confidence']:
                 boundaries.append(sc.timestamp)
         
         audio_segments = self.audio_features.get('segments', [])
@@ -230,10 +231,11 @@ class MultimodalSegmenter:
             if abs(curr_seg.avg_volume - prev_seg.avg_volume) > self.thresholds['volume_spike']:
                 boundaries.append(curr_seg.start_time)
             
-            if prev_seg.is_silence != curr_seg.is_silence:
-                boundaries.append(curr_seg.start_time)
-            
-            if prev_seg.is_music != curr_seg.is_music:
+            long_silence_transition = (
+                not prev_seg.is_silence and curr_seg.is_silence and 
+                i + 2 < len(audio_segments) and audio_segments[i + 1].is_silence
+            )
+            if long_silence_transition:
                 boundaries.append(curr_seg.start_time)
         
         boundaries.append(self.video_analyzer.duration)
@@ -243,10 +245,8 @@ class MultimodalSegmenter:
         for b in boundaries[1:]:
             if b - merged_boundaries[-1] >= self.thresholds['min_segment_duration']:
                 merged_boundaries.append(b)
-            else:
-                pass
         
-        if merged_boundaries[-1] < self.video_analyzer.duration:
+        if merged_boundaries[-1] < self.video_analyzer.duration - 1:
             merged_boundaries.append(self.video_analyzer.duration)
         
         self.segments = []
@@ -311,7 +311,7 @@ class MultimodalSegmenter:
     def _classify_single_segment(self, segment: VideoSegment, features: Dict) -> Tuple[SegmentType, float]:
         """Classify a single segment based on its features."""
         scores = {
-            SegmentType.CORE_CONTENT: 0.0,
+            SegmentType.CORE_CONTENT: 0.5,
             SegmentType.AD: 0.0,
             SegmentType.INTRO: 0.0,
             SegmentType.OUTRO: 0.0,
@@ -319,67 +319,87 @@ class MultimodalSegmenter:
             SegmentType.SILENCE: 0.0
         }
         
-        silence_ratio = features.get('silence_ratio', 0)
-        if silence_ratio > 0.8:
-            scores[SegmentType.SILENCE] += 0.9
-        
-        if features.get('scene_change_density', 0) > self.thresholds['scene_change_density']:
-            scores[SegmentType.AD] += 0.3
-            scores[SegmentType.TRANSITION] += 0.2
-        
-        music_ratio = features.get('music_ratio', 0)
-        if music_ratio > 0.7:
-            if features.get('is_near_start', False):
-                scores[SegmentType.INTRO] += 0.5
-            elif features.get('is_near_end', False):
-                scores[SegmentType.OUTRO] += 0.5
-            else:
-                scores[SegmentType.AD] += 0.3
-        
         duration = features.get('duration', 0)
-        ad_min, ad_max = self.thresholds['ad_duration_range']
-        if ad_min <= duration <= ad_max:
-            scores[SegmentType.AD] += 0.2
-        
+        silence_ratio = features.get('silence_ratio', 0)
+        music_ratio = features.get('music_ratio', 0)
         avg_volume = features.get('avg_volume', 0)
+        scene_change_density = features.get('scene_change_density', 0)
         overall_avg = self.audio_features.get('statistics', {}).get('avg_volume', 0.1)
-        if avg_volume > overall_avg * 1.3:
-            scores[SegmentType.AD] += 0.2
         
-        if features.get('is_near_start', False) and duration < self.thresholds['intro_max_duration']:
-            if music_ratio > 0.5 or features.get('std_brightness', 0) > 30:
-                scores[SegmentType.INTRO] += 0.4
+        if silence_ratio > 0.95 and avg_volume < 0.01:
+            scores[SegmentType.SILENCE] += 0.9
+            scores[SegmentType.CORE_CONTENT] = 0
         
-        if features.get('is_near_end', False):
-            if music_ratio > 0.5 or silence_ratio > 0.3:
-                scores[SegmentType.OUTRO] += 0.4
+        if features.get('is_near_start', False) and segment.start_time < 30:
+            if music_ratio > 0.6 or duration < 20:
+                scores[SegmentType.INTRO] += 0.7
+                scores[SegmentType.CORE_CONTENT] -= 0.3
         
-        edge_density = features.get('avg_edge_density', 0)
-        if edge_density < 0.02 and features.get('std_brightness', float('inf')) < 10:
-            scores[SegmentType.TRANSITION] += 0.5
+        if features.get('is_near_end', False) and duration < 60:
+            if music_ratio > 0.5 or silence_ratio > 0.5:
+                scores[SegmentType.OUTRO] += 0.6
+                scores[SegmentType.CORE_CONTENT] -= 0.3
+        
+        ad_min, ad_max = self.thresholds['ad_duration_range']
+        is_ad_duration = ad_min <= duration <= ad_max
+        
+        ad_indicators = 0
+        if is_ad_duration:
+            ad_indicators += 1
+        if scene_change_density > self.thresholds['scene_change_density']:
+            ad_indicators += 1
+        if avg_volume > overall_avg * 1.5:
+            ad_indicators += 1
+        if music_ratio > 0.6 and not features.get('is_near_start', False) and not features.get('is_near_end', False):
+            ad_indicators += 1
+        
+        if ad_indicators >= 3:
+            scores[SegmentType.AD] += 0.8
+            scores[SegmentType.CORE_CONTENT] = 0.1
+        elif ad_indicators >= 2 and is_ad_duration:
+            scores[SegmentType.AD] += 0.5
+            scores[SegmentType.CORE_CONTENT] -= 0.2
+        
+        if duration > 120:
+            scores[SegmentType.CORE_CONTENT] += 0.4
+            scores[SegmentType.AD] -= 0.3
+        
+        if duration > 180:
+            scores[SegmentType.CORE_CONTENT] += 0.3
         
         max_score = max(scores.values())
-        if max_score < 0.3:
-            return SegmentType.CORE_CONTENT, 0.7
-        
         best_type = max(scores, key=scores.get)
-        confidence = min(scores[best_type] + 0.3, 1.0)
         
+        if max_score < 0.4:
+            return SegmentType.CORE_CONTENT, 0.6
+        
+        confidence = min(max_score, 1.0)
         return best_type, confidence
     
     def _merge_adjacent_segments(self):
-        """Merge adjacent segments of the same type."""
+        """Merge adjacent segments of the same type and absorb tiny segments."""
         if len(self.segments) < 2:
             return
+        
+        for segment in self.segments:
+            if segment.duration < 10 and segment.segment_type in [SegmentType.TRANSITION, SegmentType.SILENCE]:
+                segment.segment_type = SegmentType.CORE_CONTENT
         
         merged = [self.segments[0]]
         
         for segment in self.segments[1:]:
             prev = merged[-1]
             
-            if (segment.segment_type == prev.segment_type and
-                abs(segment.start_time - prev.end_time) < 0.5):
-                
+            should_merge = (
+                segment.segment_type == prev.segment_type and
+                abs(segment.start_time - prev.end_time) < 1.0
+            )
+            
+            if not should_merge and segment.duration < 5:
+                segment.segment_type = prev.segment_type
+                should_merge = True
+            
+            if should_merge:
                 merged_features = {}
                 for key in set(prev.features.keys()) | set(segment.features.keys()):
                     if key in prev.features and key in segment.features:
@@ -397,6 +417,31 @@ class MultimodalSegmenter:
                 prev.end_time = segment.end_time
                 prev.confidence = (prev.confidence + segment.confidence) / 2
                 prev.features = merged_features
+            else:
+                merged.append(segment)
+        
+        self.segments = merged
+        
+        if len(self.segments) > 2:
+            self._second_pass_merge()
+    
+    def _second_pass_merge(self):
+        """Second pass to merge similar adjacent segments."""
+        merged = [self.segments[0]]
+        
+        for segment in self.segments[1:]:
+            prev = merged[-1]
+            
+            both_content_like = (
+                prev.segment_type in [SegmentType.CORE_CONTENT, SegmentType.TRANSITION] and
+                segment.segment_type in [SegmentType.CORE_CONTENT, SegmentType.TRANSITION]
+            )
+            
+            if both_content_like and segment.duration < 30:
+                prev.end_time = segment.end_time
+                prev.segment_type = SegmentType.CORE_CONTENT
+            elif segment.segment_type == prev.segment_type:
+                prev.end_time = segment.end_time
             else:
                 merged.append(segment)
         
