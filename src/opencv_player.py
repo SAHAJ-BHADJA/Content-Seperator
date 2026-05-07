@@ -87,14 +87,20 @@ class AudioPlayer:
     def _extract_audio(self):
         """Extract audio from video using ffmpeg."""
         try:
-            fd, self.audio_file = tempfile.mkstemp(suffix='.mp3')
+            fd, self.audio_file = tempfile.mkstemp(suffix='.wav')
             os.close(fd)
             
             cmd = [
-                'ffmpeg', '-y', '-i', self.video_path,
-                '-vn', '-acodec', 'libmp3lame', '-ar', '44100', '-ac', '2',
-                '-b:a', '192k', self.audio_file
+                'ffmpeg', '-y', 
+                '-i', self.video_path,
+                '-vn',
+                '-acodec', 'pcm_s16le',
+                '-ar', '44100',
+                '-ac', '2',
+                self.audio_file
             ]
+            
+            print(f"Extracting audio: {' '.join(cmd)}")
             
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
@@ -102,7 +108,11 @@ class AudioPlayer:
             )
             
             if result.returncode != 0:
-                print(f"FFmpeg error: {result.stderr[:500]}")
+                error_lines = [l for l in result.stderr.split('\n') if 'error' in l.lower() or 'Error' in l]
+                if error_lines:
+                    print(f"FFmpeg error: {error_lines[0]}")
+                else:
+                    print(f"FFmpeg failed with code {result.returncode}")
                 return False
             
             if not os.path.exists(self.audio_file):
@@ -115,7 +125,7 @@ class AudioPlayer:
                 return False
             
             pygame.mixer.music.load(self.audio_file)
-            print(f"Audio loaded: {self.audio_file} ({file_size} bytes)")
+            print(f"Audio loaded successfully ({file_size // 1024} KB)")
             return True
             
         except Exception as e:
