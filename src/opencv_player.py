@@ -674,6 +674,11 @@ class OpenCVVideoPlayer(QMainWindow):
         self.audio_player = AudioPlayer(video_path)
         self.audio_player.set_volume(self.volume_slider.value() / 100.0)
         
+        if self.audio_player._initialized:
+            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} (audio ready)")
+        else:
+            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} (no audio)")
+        
         QTimer.singleShot(500, self._init_video_info)
         
         self.setWindowTitle(f"CSCI 576 Player - {os.path.basename(video_path)}")
@@ -729,8 +734,7 @@ class OpenCVVideoPlayer(QMainWindow):
         else:
             self.video_thread.play()
             if self.audio_player:
-                self.audio_player.seek(self.video_thread.current_pos)
-                self.audio_player.unpause()
+                self.audio_player.play(self.video_thread.current_pos)
             self.play_btn.setText("⏸ Pause")
             self.is_playing = True
     
@@ -747,9 +751,10 @@ class OpenCVVideoPlayer(QMainWindow):
         if self.video_thread:
             self.video_thread.seek(position)
         if self.audio_player:
-            self.audio_player.seek(position)
-            if not self.is_playing:
-                self.audio_player.pause()
+            if self.is_playing:
+                self.audio_player.play(position)
+            else:
+                self.audio_player.seek(position)
     
     def _set_volume(self, value: int):
         if self.audio_player:

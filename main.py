@@ -1,18 +1,3 @@
-"""
-CSCI 576 Multimedia Project - Multimodal Video Segmentation System
-Main entry point for the application.
-
-This system segments long-form videos into content and non-content segments
-using multimodal analysis (visual, audio, motion features) and provides
-an interactive video player for navigation.
-
-Usage:
-    python main.py                           # Launch GUI player
-    python main.py <video_path>              # Open specific video
-    python main.py --analyze <video_path>    # Analyze video and save results
-    python main.py --batch <video_dir>       # Batch analyze all videos
-"""
-
 import sys
 import os
 import argparse
