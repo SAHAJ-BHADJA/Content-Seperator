@@ -834,11 +834,16 @@ class OpenCVVideoPlayer(QMainWindow):
         video_dir = os.path.dirname(video_path)
         video_name = os.path.splitext(os.path.basename(video_path))[0]
         
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
         paths = [
+            os.path.join(video_dir, f'{video_name}.json'),
             os.path.join(video_dir, '..', 'video_info', f'{video_name}.json'),
             os.path.join(video_dir, 'video_info', f'{video_name}.json'),
+            os.path.join(project_root, 'video_info', f'{video_name}.json'),
+            os.path.join(project_root, 'video_test', f'{video_name}.json'),
         ]
-        
+
         for path in paths:
             normalized = os.path.normpath(path)
             if os.path.exists(normalized):
