@@ -611,6 +611,14 @@ class OpenCVVideoPlayer(QMainWindow):
         self.export_all_btn.clicked.connect(self._export_all)
         export_layout.addWidget(self.export_all_btn)
         
+        self.evaluate_btn = QPushButton("📊 Evaluate Accuracy")
+        self.evaluate_btn.setStyleSheet("""
+            QPushButton { background-color: #FF9800; }
+            QPushButton:hover { background-color: #F57C00; }
+        """)
+        self.evaluate_btn.clicked.connect(self._evaluate_accuracy)
+        export_layout.addWidget(self.evaluate_btn)
+        
         right_layout.addWidget(export_group)
         
         stats_group = QGroupBox("Video Statistics")
@@ -998,6 +1006,64 @@ class OpenCVVideoPlayer(QMainWindow):
             
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
+    
+    def _evaluate_accuracy(self):
+        """Evaluate segmentation accuracy against ground truth."""
+        if not self.segmentation_result:
+            QMessageBox.warning(self, "Error", "No segmentation data. Analyze video first.")
+            return
+        
+        if not self.current_video_path:
+            QMessageBox.warning(self, "Error", "No video loaded.")
+            return
+        
+        gt_path = self._find_info_file(self.current_video_path)
+        if not gt_path:
+            QMessageBox.warning(self, "No Ground Truth", 
+                "No ground truth file found for this video.\n\n"
+                "Ground truth files are only available for test_001 to test_005.\n"
+                "Please load one of those videos to evaluate accuracy.")
+            return
+        
+        try:
+            try:
+                from .evaluation import SegmentationEvaluator
+                from .segmentation import GroundTruthSegmenter, SegmentType
+            except ImportError:
+                from evaluation import SegmentationEvaluator
+                from segmentation import GroundTruthSegmenter, SegmentType
+            
+            self.statusBar.showMessage("Evaluating accuracy...")
+            QApplication.processEvents()
+            
+            gt_segmenter = GroundTruthSegmenter(self.current_video_path, gt_path)
+            ground_truth = gt_segmenter.get_segmentation()
+            
+            evaluator = SegmentationEvaluator()
+            
+            ad_metrics = evaluator.evaluate(self.segmentation_result, ground_truth, SegmentType.AD)
+            content_metrics = evaluator.evaluate(self.segmentation_result, ground_truth, SegmentType.CORE_CONTENT)
+            
+            msg = "EVALUATION RESULTS\n"
+            msg += "=" * 30 + "\n\n"
+            msg += "AD DETECTION:\n"
+            msg += f"  Precision: {ad_metrics.precision:.1%}\n"
+            msg += f"  Recall: {ad_metrics.recall:.1%}\n"
+            msg += f"  F1 Score: {ad_metrics.f1_score:.1%}\n"
+            msg += f"  IoU: {ad_metrics.iou:.1%}\n"
+            msg += f"  Accuracy: {ad_metrics.accuracy:.1%}\n\n"
+            msg += "CONTENT DETECTION:\n"
+            msg += f"  Precision: {content_metrics.precision:.1%}\n"
+            msg += f"  Recall: {content_metrics.recall:.1%}\n"
+            msg += f"  F1 Score: {content_metrics.f1_score:.1%}\n"
+            msg += f"  Accuracy: {content_metrics.accuracy:.1%}\n"
+            
+            QMessageBox.information(self, "Accuracy Evaluation", msg)
+            self.statusBar.showMessage(f"Ad F1: {ad_metrics.f1_score:.1%} | Content F1: {content_metrics.f1_score:.1%}")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Evaluation Error", str(e))
+            self.statusBar.showMessage(f"Evaluation failed: {e}")
     
     def closeEvent(self, event):
         if self.video_thread:

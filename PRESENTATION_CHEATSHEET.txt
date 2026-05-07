@@ -1,0 +1,96 @@
+================================================================================
+              CSCI 576 - VIDEO SEGMENTATION PROJECT - PRESENTATION CHEATSHEET
+================================================================================
+
+STEP 1: LAUNCH
+--------------
+Command: python main.py
+Say: "This launches our multimodal video segmentation player"
+
+STEP 2: LOAD VIDEO
+------------------
+Click: "Open Video File" → Select test video
+Say: "I'll load a test video that contains ads and different segments"
+
+STEP 3: ANALYZE VIDEO
+---------------------
+Click: "Analyze Video"
+Say: "This runs our multimodal analysis using THREE signals:"
+     - VISUAL: Color histograms, scene changes, motion detection
+     - AUDIO: Energy levels, spectral features, music detection
+     - Combined to classify each segment
+
+STEP 4: EXPLAIN TIMELINE
+------------------------
+Point to colored segments:
+     🟢 GREEN  = Core Content (main video)
+     🔴 RED    = Advertisement/Sponsorship
+     🔵 BLUE   = Intro
+     🟣 PURPLE = Outro
+     🟡 YELLOW = Transition/Static screens
+     ⚪ GRAY   = Silence/Dead air
+
+STEP 5: DEMO NAVIGATION
+-----------------------
+- Click timeline to jump to any position
+- Use "⏮ Prev" and "⏭ Next" to navigate segments
+- Use "⏩ Skip Ad" to skip current ad
+
+STEP 6: AUTO-SKIP
+-----------------
+Check: "Auto-skip ads" checkbox
+Play video → Watch it automatically skip red segments
+Say: "Auto-skip jumps past ads without user intervention"
+
+STEP 7: SPEECH ANALYSIS (Optional)
+----------------------------------
+Click: "Analyze Speech"
+Say: "This uses Whisper AI to transcribe audio and detect ad KEYWORDS like:
+      'sponsored by', 'use code', 'check the link'"
+Note: Visual finds 3 ads, Speech found 1 - because only 1 has spoken ad words
+
+STEP 8: EXPORT
+--------------
+Click: "Copy YouTube Chapters" → Paste to show format
+Click: "Export HTML Report" → Opens visual report in browser
+Say: "We support YouTube chapters, HTML reports, CSV, SRT subtitles"
+
+================================================================================
+                              KEY ANSWERS (MEMORIZE)
+================================================================================
+
+Q: How do you detect ads?
+A: Three signals - visual (scene changes, colors), audio (energy, music), 
+   and speech (keyword detection). Combined for accuracy.
+
+Q: Why multiple modalities?
+A: No single signal is reliable alone. Ads can look similar to content,
+   so we need audio and speech to confirm.
+
+Q: What is spectral centroid?
+A: Center of audio frequency - music has higher centroid than speech.
+   Helps detect intro/outro music.
+
+Q: How does scene change work?
+A: Compare color histograms of consecutive frames. Low correlation = scene cut.
+
+Q: How does motion detection work?
+A: Frame differencing - subtract consecutive frames, measure pixel changes.
+   Low motion = static screens (intros, transitions).
+
+Q: Why OpenCV instead of Qt player?
+A: Qt relies on system codecs which vary. OpenCV uses FFmpeg for consistent
+   cross-platform video decoding.
+
+================================================================================
+                              SEGMENT TYPES DETECTED
+================================================================================
+
+✅ Intro                    ✅ Outro
+✅ Advertisement            ✅ Sponsorship  
+✅ Transition               ✅ Silence/Dead air
+✅ Recap                    ✅ Static screens
+
+================================================================================
+                                 GOOD LUCK!
+================================================================================
