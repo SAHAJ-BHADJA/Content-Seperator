@@ -817,8 +817,8 @@ class OpenCVVideoPlayer(QMainWindow):
                 QApplication.processEvents()
             
             result = segmenter.analyze(
-                video_sample_rate=60,
-                audio_segment_duration=3.0,
+                video_sample_rate=10,
+                audio_segment_duration=1.0,
                 progress_callback=progress,
                 fast_mode=True
             )

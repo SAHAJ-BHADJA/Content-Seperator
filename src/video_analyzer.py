@@ -228,7 +228,7 @@ class VideoAnalyzer:
                 motion = self.calculate_motion(prev_frame, frame, fast_mode=fast_mode)
                 self.motion_scores.append(motion)
                 
-                is_change, confidence = self.detect_scene_change(prev_histogram, histogram, threshold=0.35)
+                is_change, confidence = self.detect_scene_change(prev_histogram, histogram, threshold=0.25)
                 if is_change:
                     change_type = 'cut' if confidence > 0.7 else 'fade'
                     self.scene_changes.append(SceneChange(

@@ -1,6 +1,6 @@
 @echo off
 cd /d "D:\USC\Subjects\Multimedia System Design\Project"
 git add .
-git commit -m "Improve ad detection with visual anomaly detection and scene splitting"
+git commit -m "Major improvement to ad detection - scene pair analysis and lower thresholds"
 git push origin main
 del "%~f0"
