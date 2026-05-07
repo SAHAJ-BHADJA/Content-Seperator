@@ -67,14 +67,22 @@ class AudioPlayer:
         self.is_playing = False
         self.duration = 0
         self._initialized = False
+        self.error_msg = None
         
-        if PYGAME_AVAILABLE:
-            try:
-                pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
-                self._extract_audio()
+        if not PYGAME_AVAILABLE:
+            self.error_msg = "pygame not available"
+            return
+            
+        try:
+            pygame.mixer.quit()
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
+            if self._extract_audio():
                 self._initialized = True
-            except Exception as e:
-                print(f"Audio init error: {e}")
+            else:
+                self.error_msg = "Audio extraction failed"
+        except Exception as e:
+            self.error_msg = f"Audio init: {e}"
+            print(f"Audio init error: {e}")
     
     def _extract_audio(self):
         """Extract audio from video using ffmpeg."""
@@ -85,30 +93,46 @@ class AudioPlayer:
             cmd = [
                 'ffmpeg', '-y', '-i', self.video_path,
                 '-vn', '-acodec', 'libmp3lame', '-ar', '44100', '-ac', '2',
-                '-q:a', '2', self.audio_file
+                '-b:a', '192k', self.audio_file
             ]
             
             result = subprocess.run(
-                cmd, capture_output=True,
+                cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
-            if result.returncode == 0 and os.path.exists(self.audio_file):
-                pygame.mixer.music.load(self.audio_file)
-                return True
+            if result.returncode != 0:
+                print(f"FFmpeg error: {result.stderr[:500]}")
+                return False
+            
+            if not os.path.exists(self.audio_file):
+                print("Audio file not created")
+                return False
+                
+            file_size = os.path.getsize(self.audio_file)
+            if file_size < 1000:
+                print(f"Audio file too small: {file_size} bytes")
+                return False
+            
+            pygame.mixer.music.load(self.audio_file)
+            print(f"Audio loaded: {self.audio_file} ({file_size} bytes)")
+            return True
+            
         except Exception as e:
             print(f"Audio extraction error: {e}")
-        return False
+            return False
     
     def play(self, start_pos: float = 0):
         """Start audio playback from position (seconds)."""
         if not self._initialized:
             return
         try:
+            pygame.mixer.music.stop()
             pygame.mixer.music.play(start=start_pos)
             self.is_playing = True
-        except:
-            pass
+            print(f"Audio playing from {start_pos:.1f}s")
+        except Exception as e:
+            print(f"Audio play error: {e}")
     
     def pause(self):
         """Pause audio playback."""
@@ -675,9 +699,10 @@ class OpenCVVideoPlayer(QMainWindow):
         self.audio_player.set_volume(self.volume_slider.value() / 100.0)
         
         if self.audio_player._initialized:
-            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} (audio ready)")
+            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} - Audio OK")
         else:
-            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} (no audio)")
+            err = self.audio_player.error_msg or "unknown error"
+            self.statusBar.showMessage(f"Loaded: {os.path.basename(video_path)} - No audio ({err})")
         
         QTimer.singleShot(500, self._init_video_info)
         
