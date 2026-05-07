@@ -152,14 +152,14 @@ class MultimodalSegmenter:
         self.segments: List[VideoSegment] = []
         
         self.thresholds = {
-            'scene_change_density': 0.8,
-            'scene_change_confidence': 0.6,
-            'brightness_change': 50,
-            'volume_spike': 0.5,
+            'scene_change_density': 0.5,
+            'scene_change_confidence': 0.45,
+            'brightness_change': 30,
+            'volume_spike': 0.3,
             'silence_threshold': 0.02,
             'music_threshold': 0.6,
-            'min_segment_duration': 15.0,
-            'ad_duration_range': (15, 120),
+            'min_segment_duration': 10.0,
+            'ad_duration_range': (15, 90),
             'intro_max_duration': 30,
             'outro_max_from_end': 60
         }
@@ -193,8 +193,12 @@ class MultimodalSegmenter:
         self._detect_segments()
         
         if progress_callback:
-            progress_callback(0.9, "Classifying segments...")
+            progress_callback(0.85, "Classifying segments...")
         self._classify_segments()
+        
+        if progress_callback:
+            progress_callback(0.9, "Detecting ads...")
+        self._detect_ads_by_visual_anomaly()
         
         self._merge_adjacent_segments()
         
@@ -267,6 +271,133 @@ class MultimodalSegmenter:
             segment_type, confidence = self._classify_single_segment(segment, features)
             segment.segment_type = segment_type
             segment.confidence = confidence
+    
+    def _detect_ads_by_visual_anomaly(self):
+        """Detect ads by finding segments with different visual characteristics."""
+        if len(self.segments) < 3:
+            return
+        
+        scene_changes = self.video_features.get('scene_changes', [])
+        if not scene_changes:
+            return
+        
+        all_brightness = []
+        for seg in self.segments:
+            if 'avg_brightness' in seg.features:
+                all_brightness.append(seg.features['avg_brightness'])
+        
+        if not all_brightness:
+            return
+        
+        global_avg_brightness = np.mean(all_brightness)
+        global_std_brightness = np.std(all_brightness) if len(all_brightness) > 1 else 10
+        
+        ad_min, ad_max = self.thresholds['ad_duration_range']
+        
+        for i, segment in enumerate(self.segments):
+            if segment.segment_type != SegmentType.CORE_CONTENT:
+                continue
+            
+            duration = segment.duration
+            if not (ad_min <= duration <= ad_max):
+                continue
+            
+            has_scene_change_before = any(
+                abs(sc.timestamp - segment.start_time) < 2.0 and sc.confidence > 0.4
+                for sc in scene_changes
+            )
+            has_scene_change_after = any(
+                abs(sc.timestamp - segment.end_time) < 2.0 and sc.confidence > 0.4
+                for sc in scene_changes
+            )
+            
+            if not (has_scene_change_before or has_scene_change_after):
+                continue
+            
+            seg_brightness = segment.features.get('avg_brightness', global_avg_brightness)
+            brightness_diff = abs(seg_brightness - global_avg_brightness)
+            
+            is_anomaly = brightness_diff > global_std_brightness * 0.5
+            
+            prev_brightness = self.segments[i-1].features.get('avg_brightness', 0) if i > 0 else 0
+            next_brightness = self.segments[i+1].features.get('avg_brightness', 0) if i < len(self.segments)-1 else 0
+            neighbor_avg = (prev_brightness + next_brightness) / 2 if (prev_brightness and next_brightness) else global_avg_brightness
+            
+            differs_from_neighbors = abs(seg_brightness - neighbor_avg) > 10
+            
+            if (has_scene_change_before and has_scene_change_after) or (is_anomaly and differs_from_neighbors):
+                segment.segment_type = SegmentType.AD
+                segment.confidence = 0.75
+        
+        self._split_long_content_for_ads()
+    
+    def _split_long_content_for_ads(self):
+        """Split long content segments that might contain embedded ads."""
+        scene_changes = self.video_features.get('scene_changes', [])
+        new_segments = []
+        
+        for segment in self.segments:
+            if segment.segment_type != SegmentType.CORE_CONTENT or segment.duration < 300:
+                new_segments.append(segment)
+                continue
+            
+            segment_scenes = [
+                sc for sc in scene_changes
+                if segment.start_time < sc.timestamp < segment.end_time and sc.confidence > 0.5
+            ]
+            
+            if len(segment_scenes) < 2:
+                new_segments.append(segment)
+                continue
+            
+            ad_min, ad_max = self.thresholds['ad_duration_range']
+            
+            potential_ads = []
+            for i in range(len(segment_scenes) - 1):
+                sc1, sc2 = segment_scenes[i], segment_scenes[i + 1]
+                duration = sc2.timestamp - sc1.timestamp
+                
+                if ad_min <= duration <= ad_max:
+                    potential_ads.append((sc1.timestamp, sc2.timestamp, sc1.confidence + sc2.confidence))
+            
+            if not potential_ads:
+                new_segments.append(segment)
+                continue
+            
+            best_ad = max(potential_ads, key=lambda x: x[2])
+            ad_start, ad_end, _ = best_ad
+            
+            if ad_start - segment.start_time > 5:
+                new_segments.append(VideoSegment(
+                    start_time=segment.start_time,
+                    end_time=ad_start,
+                    segment_type=SegmentType.CORE_CONTENT,
+                    confidence=0.7,
+                    features=segment.features.copy()
+                ))
+            
+            ad_features = self._extract_segment_features(VideoSegment(
+                start_time=ad_start, end_time=ad_end,
+                segment_type=SegmentType.AD, confidence=0.8
+            ))
+            new_segments.append(VideoSegment(
+                start_time=ad_start,
+                end_time=ad_end,
+                segment_type=SegmentType.AD,
+                confidence=0.8,
+                features=ad_features
+            ))
+            
+            if segment.end_time - ad_end > 5:
+                new_segments.append(VideoSegment(
+                    start_time=ad_end,
+                    end_time=segment.end_time,
+                    segment_type=SegmentType.CORE_CONTENT,
+                    confidence=0.7,
+                    features=segment.features.copy()
+                ))
+        
+        self.segments = sorted(new_segments, key=lambda s: s.start_time)
     
     def _extract_segment_features(self, segment: VideoSegment) -> Dict:
         """Extract combined features for a segment."""
